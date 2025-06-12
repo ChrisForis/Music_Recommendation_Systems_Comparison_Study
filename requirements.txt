@@ -1,0 +1,83 @@
+# ΠΛΗΡΕΣ ΑΡΧΕΙΟ ΕΞΑΡΤΗΣΕΩΝ ΓΙΑ ΤΟ ΣΥΣΤΗΜΑ ΣΥΣΤΑΣΗΣ ΜΟΥΣΙΚΗΣ
+# ================================================================
+# Αυτό το αρχείο περιλαμβάνει όλες τις απαραίτητες βιβλιοθήκες για:
+# - Κύρια εφαρμογή (5 βασικοί αλγόριθμοι, αξιολόγηση, οπτικοποίηση)
+# - GUI εφαρμογή (προαιρετικά)
+# - Deep Learning μοντέλα (NeuMF, MultVAE)
+
+# ΒΑΣΙΚΕΣ ΒΙΒΛΙΟΘΗΚΕΣ ΓΙΑ ΕΠΙΣΤΗΜΗ ΔΕΔΟΜΕΝΩΝ
+# =============================================
+numpy>=1.21.0
+pandas>=1.3.0
+scipy>=1.7.0
+scikit-learn>=1.0.0
+
+# ΒΙΒΛΙΟΘΗΚΕΣ ΓΙΑ ΟΠΤΙΚΟΠΟΙΗΣΗ
+# ==============================
+matplotlib>=3.4.0
+seaborn>=0.11.0
+
+# ΒΙΒΛΙΟΘΗΚΕΣ ΓΙΑ ΒΑΘΙΑ ΜΑΘΗΣΗ (ΓΙΑ NeuMF, MultVAE)
+# ==================================================
+torch>=1.9.0
+torchvision>=0.10.0
+
+# ΒΙΒΛΙΟΘΗΚΕΣ ΓΙΑ LLM ΚΑΙ NLP (ΠΡΟΑΙΡΕΤΙΚΕΣ)
+# ===========================================
+transformers>=4.20.0
+sentence-transformers>=2.2.0
+
+# ΒΙΒΛΙΟΘΗΚΕΣ ΓΙΑ SPARSE MATRICES ΚΑΙ ΑΠΟΔΟΤΙΚΟΥΣ ΥΠΟΛΟΓΙΣΜΟΥΣ
+# ===========================================================
+implicit>=0.6.0
+
+# GUI ΒΙΒΛΙΟΘΗΚΕΣ (ΠΡΟΑΙΡΕΤΙΚΕΣ)
+# ===============================
+PySide6>=6.4.0
+
+# ΒΟΗΘΗΤΙΚΕΣ ΒΙΒΛΙΟΘΗΚΕΣ
+# ======================
+tqdm>=4.60.0
+joblib>=1.0.0
+colorama>=0.4.0
+psutil>=5.8.0
+
+# ΒΙΒΛΙΟΘΗΚΕΣ ΓΙΑ TESTING ΚΑΙ DEVELOPMENT
+# =======================================
+pytest>=6.0.0
+pytest-cov>=2.12.0
+
+# ΠΡΟΑΙΡΕΤΙΚΕΣ ΒΙΒΛΙΟΘΗΚΕΣ ΓΙΑ ΒΕΛΤΙΩΜΕΝΗ ΛΕΙΤΟΥΡΓΙΚΟΤΗΤΑ
+# ========================================================
+# qtawesome>=1.2.0  # Για icons στο GUI
+# plyer>=2.1.0       # Για system tray functionality
+# networkx>=2.6.0    # Για graph-based αλγόριθμους
+# plotly>=5.0.0      # Για διαδραστικά γραφήματα
+
+# ΟΔΗΓΙΕΣ ΕΓΚΑΤΑΣΤΑΣΗΣ
+# ====================
+# Για πλήρη εγκατάσταση (όλοι οι αλγόριθμοι):
+# pip install -r requirements.txt
+#
+# Για βασική εγκατάσταση (μόνο Collaborative Filtering):
+# pip install -r requirements_minimal.txt
+#
+# Για Deep Learning μοντέλα (CPU):
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+#
+# Για Deep Learning μοντέλα (GPU με CUDA):
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+#
+# Για GUI εφαρμογή:
+# pip install PySide6 psutil
+
+# ΥΠΟΣΤΗΡΙΖΟΜΕΝΟΙ ΑΛΓΟΡΙΘΜΟΙ
+# ===========================
+# Collaborative Filtering:
+#   - UserKNN: User-based K-Nearest Neighbors
+#   - ItemKNN: Item-based K-Nearest Neighbors
+#   - SVD: Singular Value Decomposition
+#
+# Deep Learning:
+#   - NeuMF: Neural Collaborative Filtering
+#   - MultVAE: Multinomial Variational Autoencoder 
