@@ -243,15 +243,17 @@ class MusicRecommendationLogger:
             total=total,
             desc=description,
             unit="items",
-            ncols=100,
-            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]'
+            ncols=120,  # Μεγαλύτερο πλάτος
+            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] {postfix}',
+            colour='blue',
+            leave=True  # Αφήνει το progress bar ανοιχτό
         )
         
         self.progress_bars[name] = pbar
         self.info(f"Δημιουργία progress bar: {name} - {description}")
         return pbar
     
-    def update_progress(self, name: str, increment: int = 1, description: str = None):
+    def update_progress(self, name: str, increment: int = 1, description: str = None, postfix: str = None):
         """
         Ενημέρωση progress bar
         
@@ -259,12 +261,15 @@ class MusicRecommendationLogger:
             name (str): Όνομα του progress bar
             increment (int): Αύξηση
             description (str): Νέα περιγραφή
+            postfix (str): Επιπλέον πληροφορία
         """
         if name in self.progress_bars and self.progress_bars[name] is not None:
             pbar = self.progress_bars[name]
             pbar.update(increment)
             if description:
                 pbar.set_description(description)
+            if postfix:
+                pbar.set_postfix_str(postfix)
         else:
             # Fallback logging αν δεν υπάρχει progress bar
             if hasattr(self, f'_progress_{name}'):
@@ -287,6 +292,8 @@ class MusicRecommendationLogger:
             self.progress_bars[name].close()
             del self.progress_bars[name]
             self.info(f"Κλείσιμο progress bar: {name}")
+        else:
+            self.info(f"Progress bar {name} δεν βρέθηκε ή ήταν ήδη κλειστό")
     
     def log_dataset_stats(self, stats: Dict[str, Any]):
         """

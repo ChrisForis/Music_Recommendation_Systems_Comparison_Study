@@ -23,7 +23,6 @@ from sklearn.model_selection import train_test_split
 import warnings
 warnings.filterwarnings('ignore')
 
-# Εισαγωγή του logging συστήματος
 from logger import get_logger
 
 
@@ -58,10 +57,8 @@ class DataLoader:
         self.artist_to_idx = None
         self.idx_to_artist = None
         
-        # Ρυθμίσεις dataset
         self.dataset_ratio = 1.0  # Ποσοστό του dataset που θα χρησιμοποιηθεί (1.0 = 100%)
         
-        # Αρχικοποίηση logger
         self.logger = get_logger()
         self.logger.info(f"Αρχικοποίηση DataLoader με dataset path: {dataset_path}")
         

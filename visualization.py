@@ -116,13 +116,13 @@ class ModernVisualizationEngine:
                                     title: Optional[str] = None,
                                     save_name: Optional[str] = None) -> str:
         """
-        Δημιουργία μοντέρνου bar chart για σύγκριση μοντέλων
+        Δημιουργία γραφήματος σύγκρισης μοντέλων για συγκεκριμένη μετρική
         
         Args:
-            results_df (pd.DataFrame): DataFrame με αποτελέσματα μοντέλων
-            metric (str): Μετρική προς οπτικοποίηση
+            results_df (pd.DataFrame): DataFrame με αποτελέσματα
+            metric (str): Μετρική προς σύγκριση
             title (str, optional): Τίτλος γραφήματος
-            save_name (str, optional): Όνομα αρχείου αποθήκευσης
+            save_name (str, optional): Όνομα αρχείου
             
         Returns:
             str: Διαδρομή αποθηκευμένου αρχείου
@@ -131,54 +131,49 @@ class ModernVisualizationEngine:
             title = f'Σύγκριση Μοντέλων - {metric}'
         
         if save_name is None:
-            save_name = f'model_comparison_{metric.lower().replace("@", "_at_")}'
+            save_name = f'model_comparison_{metric.lower().replace("@", "_")}'
         
-        # Δημιουργία figure με μοντέρνο στυλ
-        fig, ax = plt.subplots(figsize=(14, 8))
+        # Έλεγχος για άδειο DataFrame
+        if results_df.empty:
+            self.logger.warning("Το DataFrame είναι άδειο. Δεν μπορεί να δημιουργηθεί γράφημα σύγκρισης.")
+            return ""
         
-        # Προετοιμασία δεδομένων
-        if metric in results_df.columns:
-            data = results_df[metric].sort_values(ascending=False)
-            models = data.index.tolist()
-            values = data.values
-            
-            # Δημιουργία gradient χρωμάτων
-            colors = self._create_gradient_colors(len(models))
-            
-            # Δημιουργία bars με gradient effect
-            bars = ax.bar(models, values, color=colors, alpha=0.8, 
-                         edgecolor='white', linewidth=1.5)
-            
-            # Προσθήκη τιμών πάνω από τα bars
-            for bar, value in zip(bars, values):
-                height = bar.get_height()
-                ax.text(bar.get_x() + bar.get_width()/2., height + 0.001,
-                       f'{value:.4f}', ha='center', va='bottom', 
-                       fontweight='bold', fontsize=10)
-            
-            # Styling
-            ax.set_title(title, fontsize=18, fontweight='bold', pad=20)
-            ax.set_xlabel('Μοντέλα Σύστασης', fontsize=14, fontweight='bold')
-            ax.set_ylabel(metric, fontsize=14, fontweight='bold')
-            
-            # Περιστροφή labels για καλύτερη ανάγνωση
-            plt.xticks(rotation=45, ha='right')
-            
-            # Προσθήκη subtle background gradient
-            ax.set_facecolor('#fafafa')
-            
-            # Βελτίωση grid
-            ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
-            ax.set_axisbelow(True)
-            
-            # Ρύθμιση y-axis για καλύτερη εμφάνιση
-            y_max = max(values) * 1.15
-            ax.set_ylim(0, y_max)
-            
-        else:
-            ax.text(0.5, 0.5, f'Μετρική {metric} δεν βρέθηκε', 
-                   ha='center', va='center', transform=ax.transAxes,
-                   fontsize=16, color='red')
+        # Έλεγχος για την ύπαρξη της μετρικής
+        if metric not in results_df.columns:
+            self.logger.warning(f"Η μετρική '{metric}' δεν βρέθηκε στο DataFrame.")
+            return ""
+        
+        # Φιλτράρισμα μη-κενών τιμών
+        valid_data = results_df[results_df[metric].notna()]
+        if valid_data.empty:
+            self.logger.warning(f"Δεν υπάρχουν έγκυρες τιμές για τη μετρική '{metric}'.")
+            return ""
+        
+        # Δημιουργία figure
+        fig, ax = plt.subplots(figsize=(12, 8))
+        
+        # Ταξινόμηση μοντέλων βάσει της μετρικής
+        sorted_data = valid_data.sort_values(metric, ascending=False)
+        
+        # Δημιουργία bar chart
+        bars = ax.bar(range(len(sorted_data)), sorted_data[metric], 
+                     color=self.model_palette[:len(sorted_data)])
+        
+        # Προσθήκη τιμών πάνω από τα bars
+        for i, (model, value) in enumerate(zip(sorted_data.index, sorted_data[metric])):
+            ax.text(i, value + 0.001, f'{value:.4f}', 
+                   ha='center', va='bottom', fontweight='bold')
+        
+        # Styling
+        ax.set_title(title, fontsize=18, fontweight='bold', pad=20)
+        ax.set_xlabel('Μοντέλα Σύστασης', fontsize=14, fontweight='bold')
+        ax.set_ylabel(metric, fontsize=14, fontweight='bold')
+        ax.set_xticks(range(len(sorted_data)))
+        ax.set_xticklabels(sorted_data.index, rotation=45, ha='right')
+        
+        # Grid
+        ax.grid(True, alpha=0.3, axis='y')
+        ax.set_axisbelow(True)
         
         # Αποθήκευση
         filepath = self._save_plot(fig, save_name)
@@ -190,7 +185,7 @@ class ModernVisualizationEngine:
                               title: Optional[str] = None,
                               save_name: Optional[str] = None) -> str:
         """
-        Δημιουργία μοντέρνου heatmap για όλες τις μετρικές
+        Δημιουργία heatmap μετρικών αξιολόγησης
         
         Args:
             results_df (pd.DataFrame): DataFrame με αποτελέσματα
@@ -206,12 +201,27 @@ class ModernVisualizationEngine:
         if save_name is None:
             save_name = 'metrics_heatmap'
         
+        # Έλεγχος για άδειο DataFrame
+        if results_df.empty:
+            self.logger.warning("Το DataFrame είναι άδειο. Δεν μπορεί να δημιουργηθεί heatmap.")
+            return ""
+        
+        # Έλεγχος για αριθμητικές στήλες
+        numeric_cols = results_df.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) == 0:
+            self.logger.warning("Δεν βρέθηκαν αριθμητικές στήλες στο DataFrame.")
+            return ""
+        
         # Δημιουργία figure
         fig, ax = plt.subplots(figsize=(12, 8))
         
         # Φιλτράρισμα μόνο αριθμητικών στηλών
-        numeric_cols = results_df.select_dtypes(include=[np.number]).columns
         data = results_df[numeric_cols]
+        
+        # Έλεγχος για NaN τιμές
+        if data.isnull().all().all():
+            self.logger.warning("Όλες οι τιμές στο DataFrame είναι NaN.")
+            return ""
         
         # Δημιουργία custom colormap
         colors = ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51']
@@ -261,14 +271,36 @@ class ModernVisualizationEngine:
         if save_name is None:
             save_name = 'performance_radar'
         
+        # Έλεγχος για άδειο DataFrame
+        if results_df.empty:
+            self.logger.warning("Το DataFrame είναι άδειο. Δεν μπορεί να δημιουργηθεί radar chart.")
+            return ""
+        
         # Επιλογή μοντέλων
         if models_to_compare is None:
             models_to_compare = results_df.index[:5].tolist()  # Top 5 μοντέλα
         
+        # Έλεγχος για έγκυρα μοντέλα
+        valid_models = [model for model in models_to_compare if model in results_df.index]
+        if not valid_models:
+            self.logger.warning("Δεν βρέθηκαν έγκυρα μοντέλα για το radar chart.")
+            return ""
+        
         # Φιλτράρισμα δεδομένων
-        data = results_df.loc[models_to_compare]
+        data = results_df.loc[valid_models]
         numeric_cols = data.select_dtypes(include=[np.number]).columns
+        
+        # Έλεγχος για αριθμητικές στήλες
+        if len(numeric_cols) == 0:
+            self.logger.warning("Δεν βρέθηκαν αριθμητικές στήλες για το radar chart.")
+            return ""
+        
         data = data[numeric_cols]
+        
+        # Έλεγχος για NaN τιμές
+        if data.isnull().all().all():
+            self.logger.warning("Όλες οι τιμές είναι NaN. Δεν μπορεί να δημιουργηθεί radar chart.")
+            return ""
         
         # Κανονικοποίηση δεδομένων (0-1)
         data_norm = (data - data.min()) / (data.max() - data.min())
@@ -297,9 +329,7 @@ class ModernVisualizationEngine:
         ax.set_ylim(0, 1)
         ax.set_title(title, fontsize=16, fontweight='bold', pad=30)
         ax.grid(True, alpha=0.3)
-        
-        # Legend
-        plt.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
+        ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
         
         # Αποθήκευση
         filepath = self._save_plot(fig, save_name)
@@ -593,33 +623,44 @@ class ModernVisualizationEngine:
         generated_files = {}
         
         try:
+            # Έλεγχος για άδειο DataFrame
+            if results_df.empty:
+                self.logger.warning("Το DataFrame είναι άδειο. Δεν μπορούν να δημιουργηθούν οπτικοποιήσεις.")
+                return generated_files
+            
             # 1. Model comparison charts
             for metric in ['Recall@5', 'NDCG@5', 'Hit_Rate@5', 'MRR']:
                 if metric in results_df.columns:
                     filepath = self.create_model_comparison_chart(results_df, metric)
-                    generated_files[f'comparison_{metric}'] = filepath
+                    if filepath:  # Έλεγχος για μη-κενό filepath
+                        generated_files[f'comparison_{metric}'] = filepath
             
             # 2. Metrics heatmap
             filepath = self.create_metrics_heatmap(results_df)
-            generated_files['heatmap'] = filepath
+            if filepath:  # Έλεγχος για μη-κενό filepath
+                generated_files['heatmap'] = filepath
             
             # 3. Radar chart
             filepath = self.create_performance_radar_chart(results_df)
-            generated_files['radar'] = filepath
+            if filepath:  # Έλεγχος για μη-κενό filepath
+                generated_files['radar'] = filepath
             
             # 4. Dataset overview
             if data_stats:
                 filepath = self.create_dataset_overview(data_stats)
-                generated_files['dataset_overview'] = filepath
+                if filepath:  # Έλεγχος για μη-κενό filepath
+                    generated_files['dataset_overview'] = filepath
             
             # 5. Training curves
             if training_history:
                 filepath = self.create_training_curves(training_history)
-                generated_files['training_curves'] = filepath
+                if filepath:  # Έλεγχος για μη-κενό filepath
+                    generated_files['training_curves'] = filepath
             
             # 6. Comprehensive dashboard
             filepath = self.create_comprehensive_dashboard(results_df, data_stats)
-            generated_files['dashboard'] = filepath
+            if filepath:  # Έλεγχος για μη-κενό filepath
+                generated_files['dashboard'] = filepath
             
             self.logger.info(f"Δημιουργήθηκαν {len(generated_files)} οπτικοποιήσεις")
             
