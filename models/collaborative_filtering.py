@@ -25,11 +25,12 @@
 import numpy as np
 import pandas as pd
 from scipy.sparse import csr_matrix
-from sklearn.metrics.pairwise import cosine_similarity, pairwise_distances
+from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import TruncatedSVD
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple
 import warnings
 warnings.filterwarnings('ignore')
+
 
 
 class BaseRecommender:
@@ -100,19 +101,27 @@ class UserKNN(BaseRecommender):
       περιγράφει τη χρήση του Last.fm dataset για collaborative filtering.
     """
     
-    def __init__(self, k: int = 50, similarity_metric: str = 'cosine'):
+    def __init__(self, k: int = 50, similarity_metric: str = 'cosine', shrinkage_strength: float = 0.0, normalize: bool = False, popularity_penalty: float = 0.3):
         """
         Αρχικοποίηση του UserKNN
         
         Args:
             k (int): Αριθμός πλησιέστερων γειτόνων
-            similarity_metric (str): Μετρική ομοιότητας ('cosine', 'pearson')
+            similarity_metric (str): Μετρική ομοιότητας ('cosine', 'pearson', 'jaccard', 'adjusted_cosine')
+            shrinkage_strength (float): Παράμετρος shrinkage για regularization
+            normalize (bool): Εφαρμογή normalization/centering στα ratings
         """
         super().__init__()
         self.k = k
         self.similarity_metric = similarity_metric
+        self.shrinkage_strength = shrinkage_strength
+        self.normalize = normalize
+        # Παράμετρος που μειώνει τη βαθμολογία των δημοφιλών αντικειμένων (long-tail boosting)
+        self.popularity_penalty = popularity_penalty
+        self.item_popularity = None
         self.user_similarity_matrix = None
         self.interaction_matrix = None
+        self.n_common_matrix = None
     
     def fit(self, interaction_matrix: csr_matrix):
         """
@@ -125,15 +134,17 @@ class UserKNN(BaseRecommender):
             interaction_matrix (csr_matrix): Πίνακας αλληλεπιδράσεων
         """
         self.interaction_matrix = interaction_matrix
-        
+        # Αν ζητηθεί long-tail boosting, προϋπολογίζουμε τη δημοφιλία κάθε αντικειμένου (αριθμός χρηστών που το έχουν αλληλεπιδράσει)
+        if self.popularity_penalty > 0:
+            self.item_popularity = np.array((interaction_matrix > 0).sum(axis=0)).flatten() + 1
         # Υπολογισμός μέσων όρων
         self.global_mean = interaction_matrix.data.mean()
         self.user_mean = np.array(interaction_matrix.mean(axis=1)).flatten()
-        
-        # Υπολογισμός ομοιότητας χρηστών
+
+         # Υπολογισμός ομοιότητας χρηστών
         if self.similarity_metric == 'cosine':
             self.user_similarity_matrix = cosine_similarity(interaction_matrix)
-        elif self.similarity_metric == 'pearson':
+        elif self.similarity_metric == 'pearson' or self.normalize:
             # Κεντράρισμα των δεδομένων για Pearson correlation
             user_mean_matrix = interaction_matrix.copy().astype(float)
             for i in range(interaction_matrix.shape[0]):
@@ -142,12 +153,18 @@ class UserKNN(BaseRecommender):
                     user_mean_matrix[i, user_interactions] -= self.user_mean[i]
             
             self.user_similarity_matrix = cosine_similarity(user_mean_matrix)
-        
-        # Αφαίρεση αυτο-ομοιότητας (διαγώνιος = 0)
+        else:
+            raise ValueError('Μη υποστηριζόμενη μετρική ομοιότητας')
+
+        # Shrinkage regularization
+        n_common = (interaction_matrix > 0).astype(int) @ (interaction_matrix > 0).astype(int).T
+        self.n_common_matrix = n_common.toarray() if hasattr(n_common, 'toarray') else n_common
+        if self.shrinkage_strength > 0:
+            self.user_similarity_matrix = self.user_similarity_matrix * (self.n_common_matrix / (self.n_common_matrix + self.shrinkage_strength))
         np.fill_diagonal(self.user_similarity_matrix, 0)
-        
+        self.user_similarity_matrix = self.user_similarity_matrix
         self.is_fitted = True
-        print(f"UserKNN εκπαιδεύτηκε με k={self.k}, similarity={self.similarity_metric}")
+        print(f"UserKNN εκπαιδεύτηκε με k={self.k}, similarity={self.similarity_metric}, shrinkage={self.shrinkage_strength}, normalize={self.normalize}")
     
     def predict(self, user_ids: List[int], item_ids: List[int]) -> np.ndarray:
         """
@@ -174,12 +191,10 @@ class UserKNN(BaseRecommender):
             # Φιλτράρισμα χρηστών που έχουν αλληλεπιδράσει με το αντικείμενο
             valid_users = []
             valid_similarities = []
-            
             for i, similar_user in enumerate(top_k_users):
                 if self.interaction_matrix[similar_user, item_id] > 0:
                     valid_users.append(similar_user)
                     valid_similarities.append(top_k_similarities[i])
-            
             if len(valid_users) == 0:
                 # Αν δεν υπάρχουν παρόμοιοι χρήστες, χρησιμοποίησε τον μέσο όρο
                 prediction = self.user_mean[user_id] if self.user_mean[user_id] > 0 else self.global_mean
@@ -187,20 +202,15 @@ class UserKNN(BaseRecommender):
                 # Υπολογισμός σταθμισμένου μέσου όρου
                 valid_similarities = np.array(valid_similarities)
                 valid_ratings = []
-                
                 for similar_user in valid_users:
                     rating = self.interaction_matrix[similar_user, item_id]
                     valid_ratings.append(rating)
-                
                 valid_ratings = np.array(valid_ratings)
-                
                 if np.sum(np.abs(valid_similarities)) > 0:
                     prediction = np.sum(valid_similarities * valid_ratings) / np.sum(np.abs(valid_similarities))
                 else:
                     prediction = self.user_mean[user_id] if self.user_mean[user_id] > 0 else self.global_mean
-            
             predictions.append(prediction)
-        
         return np.array(predictions)
     
     def recommend(self, user_id: int, n_recommendations: int = 10, 
@@ -235,6 +245,11 @@ class UserKNN(BaseRecommender):
         user_ids = [user_id] * len(candidate_items)
         scores = self.predict(user_ids, candidate_items)
         
+        # Long-tail adjustment: μείωση βαθμολογιών δημοφιλών αντικειμένων για αύξηση coverage
+        if self.popularity_penalty > 0 and self.item_popularity is not None:
+            pop_values = self.item_popularity[candidate_items] ** self.popularity_penalty
+            scores = scores / pop_values
+
         # Ταξινόμηση και επιστροφή top-N
         item_scores = list(zip(candidate_items, scores))
         item_scores.sort(key=lambda x: x[1], reverse=True)
@@ -254,7 +269,7 @@ class ItemKNN(BaseRecommender):
     περιγράφει αναλυτικά τη μεθοδολογία item-to-item collaborative filtering.
     """
     
-    def __init__(self, k: int = 50, similarity_metric: str = 'cosine'):
+    def __init__(self, k: int = 50, similarity_metric: str = 'cosine', shrinkage_strength: float = 0.0, normalize: bool = False, popularity_penalty: float = 0.3):
         """
         Αρχικοποίηση του ItemKNN
         
@@ -265,9 +280,13 @@ class ItemKNN(BaseRecommender):
         super().__init__()
         self.k = k
         self.similarity_metric = similarity_metric
+        self.shrinkage_strength = shrinkage_strength
+        self.normalize = normalize
+        self.popularity_penalty = popularity_penalty
+        self.item_popularity = None
         self.item_similarity_matrix = None
         self.interaction_matrix = None
-    
+        self.n_common_matrix = None
     def fit(self, interaction_matrix: csr_matrix):
         """
         Εκπαίδευση του ItemKNN μοντέλου
@@ -278,8 +297,8 @@ class ItemKNN(BaseRecommender):
             interaction_matrix (csr_matrix): Πίνακας αλληλεπιδράσεων
         """
         self.interaction_matrix = interaction_matrix
-        
-        # Υπολογισμός μέσων όρων
+        if self.popularity_penalty > 0:
+            self.item_popularity = np.array((interaction_matrix > 0).sum(axis=0)).flatten() + 1
         self.global_mean = interaction_matrix.data.mean()
         self.item_mean = np.array(interaction_matrix.mean(axis=0)).flatten()
         
@@ -289,22 +308,27 @@ class ItemKNN(BaseRecommender):
         # Υπολογισμός ομοιότητας αντικειμένων
         if self.similarity_metric == 'cosine':
             self.item_similarity_matrix = cosine_similarity(item_user_matrix)
-        elif self.similarity_metric == 'pearson':
+        elif self.similarity_metric == 'pearson' or self.normalize:
             # Κεντράρισμα για Pearson correlation
             item_mean_matrix = item_user_matrix.copy().astype(float)
             for i in range(item_user_matrix.shape[0]):
                 item_interactions = item_user_matrix[i].nonzero()[1]
                 if len(item_interactions) > 0:
                     item_mean_matrix[i, item_interactions] -= self.item_mean[i]
-            
-            self.item_similarity_matrix = cosine_similarity(item_mean_matrix)
+
+            self.item_similarity_matrix = cosine_similarity(item_mean_matrix)   
+        else:
+            raise ValueError('Μη υποστηριζόμενη μετρική ομοιότητας')
         
-        # Αφαίρεση αυτο-ομοιότητας
-        np.fill_diagonal(self.item_similarity_matrix, 0)
-        
+        n_common = (interaction_matrix.T > 0).astype(int) @ (interaction_matrix.T > 0).astype(int).T
+        self.n_common_matrix = n_common.toarray() if hasattr(n_common, 'toarray') else n_common
+        if self.shrinkage_strength > 0:
+            self.item_similarity_matrix = self.item_similarity_matrix  * (self.n_common_matrix / (self.n_common_matrix + self.shrinkage_strength))
+        np.fill_diagonal(self.item_similarity_matrix , 0)
+        self.item_similarity_matrix = self.item_similarity_matrix 
         self.is_fitted = True
-        print(f"ItemKNN εκπαιδεύτηκε με k={self.k}, similarity={self.similarity_metric}")
-    
+        print(f"ItemKNN εκπαιδεύτηκε με k={self.k}, similarity={self.similarity_metric}, shrinkage={self.shrinkage_strength}, normalize={self.normalize}")
+        
     def predict(self, user_ids: List[int], item_ids: List[int]) -> np.ndarray:
         """
         Πρόβλεψη βαθμολογιών χρησιμοποιώντας τα k πλησιέστερα αντικείμενα
@@ -330,12 +354,10 @@ class ItemKNN(BaseRecommender):
             # Φιλτράρισμα αντικειμένων που έχει αξιολογήσει ο χρήστης
             valid_items = []
             valid_similarities = []
-            
             for i, similar_item in enumerate(top_k_items):
                 if self.interaction_matrix[user_id, similar_item] > 0:
                     valid_items.append(similar_item)
                     valid_similarities.append(top_k_similarities[i])
-            
             if len(valid_items) == 0:
                 # Αν δεν υπάρχουν παρόμοια αντικείμενα, χρησιμοποίησε μέσο όρο
                 prediction = self.item_mean[item_id] if self.item_mean[item_id] > 0 else self.global_mean
@@ -343,20 +365,15 @@ class ItemKNN(BaseRecommender):
                 # Υπολογισμός σταθμισμένου μέσου όρου
                 valid_similarities = np.array(valid_similarities)
                 valid_ratings = []
-                
                 for similar_item in valid_items:
                     rating = self.interaction_matrix[user_id, similar_item]
                     valid_ratings.append(rating)
-                
                 valid_ratings = np.array(valid_ratings)
-                
                 if np.sum(np.abs(valid_similarities)) > 0:
                     prediction = np.sum(valid_similarities * valid_ratings) / np.sum(np.abs(valid_similarities))
                 else:
                     prediction = self.item_mean[item_id] if self.item_mean[item_id] > 0 else self.global_mean
-            
             predictions.append(prediction)
-        
         return np.array(predictions)
     
     def recommend(self, user_id: int, n_recommendations: int = 10, 
@@ -391,7 +408,9 @@ class ItemKNN(BaseRecommender):
         user_ids = [user_id] * len(candidate_items)
         scores = self.predict(user_ids, candidate_items)
         
-        # Ταξινόμηση και επιστροφή top-N
+        if self.popularity_penalty > 0 and self.item_popularity is not None:
+            pop_values = self.item_popularity[candidate_items] ** self.popularity_penalty
+            scores = scores / pop_values
         item_scores = list(zip(candidate_items, scores))
         item_scores.sort(key=lambda x: x[1], reverse=True)
         
@@ -411,7 +430,7 @@ class SVDRecommender(BaseRecommender):
     περιγράφει τις τεχνικές παραγοντοποίησης πίνακα για συστήματα σύστασης.
     """
     
-    def __init__(self, n_factors: int = 50, random_state: int = 42):
+    def __init__(self, n_factors: int = 50, random_state: int = 42, popularity_penalty: float = 0.3):
         """
         Αρχικοποίηση του SVD Recommender
         
@@ -422,6 +441,8 @@ class SVDRecommender(BaseRecommender):
         super().__init__()
         self.n_factors = n_factors
         self.random_state = random_state
+        self.popularity_penalty = popularity_penalty
+        self.item_popularity = None
         self.svd = TruncatedSVD(n_components=n_factors, random_state=random_state)
         self.user_factors = None
         self.item_factors = None
@@ -437,6 +458,8 @@ class SVDRecommender(BaseRecommender):
             interaction_matrix (csr_matrix): Πίνακας αλληλεπιδράσεων
         """
         self.interaction_matrix = interaction_matrix
+        if self.popularity_penalty > 0:
+            self.item_popularity = np.array((interaction_matrix > 0).sum(axis=0)).flatten() + 1
         
         # Υπολογισμός μέσων όρων
         self.global_mean = interaction_matrix.data.mean()
@@ -500,6 +523,9 @@ class SVDRecommender(BaseRecommender):
             for item_id in seen_items:
                 scores[item_id] = -np.inf
         
+        if self.popularity_penalty > 0 and self.item_popularity is not None:
+            pop_values = self.item_popularity ** self.popularity_penalty
+            scores = scores / pop_values
         # Ταξινόμηση και επιστροφή top-N
         top_items = np.argsort(scores)[::-1][:n_recommendations]
         recommendations = [(int(item_id), float(scores[item_id])) for item_id in top_items]

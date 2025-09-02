@@ -25,12 +25,11 @@ Deep Learning:
 """
 
 from .collaborative_filtering import UserKNN, ItemKNN, SVDRecommender
-from .deep_learning import NeuMFRecommender, MultVAERecommender
+from .deep_learning import NeuMFRecommender
 
 __all__ = [
     'UserKNN',
     'ItemKNN', 
     'SVDRecommender',
-    'NeuMFRecommender',
-    'MultVAERecommender'
+    'NeuMFRecommender'
 ] 

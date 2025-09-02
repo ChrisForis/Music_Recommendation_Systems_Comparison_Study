@@ -220,7 +220,7 @@ class NeuMFRecommender:
     
     def __init__(self, embedding_dim: int = 64, hidden_dims: List[int] = [128, 64, 32],
                  dropout: float = 0.2, learning_rate: float = 0.001, batch_size: int = 256,
-                 epochs: int = 100, device: str = 'cpu'):
+                 epochs: int = 100, device: str = 'cpu', popularity_penalty: float = 0.3):
         """
         Αρχικοποίηση του NeuMF Recommender
         
@@ -240,7 +240,9 @@ class NeuMFRecommender:
         self.batch_size = batch_size
         self.epochs = epochs
         self.device = torch.device(device)
-        
+        self.popularity_penalty = popularity_penalty
+        self.item_popularity = None
+        # Attributes αρχικοποίησης
         self.model = None
         self.is_fitted = False
         self.num_users = None
@@ -254,6 +256,8 @@ class NeuMFRecommender:
             interaction_matrix (csr_matrix): Πίνακας αλληλεπιδράσεων
         """
         self.num_users, self.num_items = interaction_matrix.shape
+        if self.popularity_penalty > 0:
+            self.item_popularity = np.array((interaction_matrix > 0).sum(axis=0)).flatten() + 1
         
         # Δημιουργία μοντέλου
         self.model = NeuMF(
@@ -345,284 +349,10 @@ class NeuMFRecommender:
             for item_id in seen_items:
                 scores[item_id] = -np.inf
         
+        if self.popularity_penalty > 0 and self.item_popularity is not None:
+            scores = scores / (self.item_popularity ** self.popularity_penalty)
         # Ταξινόμηση και επιστροφή top-N
         top_items = np.argsort(scores)[::-1][:n_recommendations]
         recommendations = [(int(item_id), float(scores[item_id])) for item_id in top_items]
         
         return recommendations
-
-
-class MultVAE(nn.Module):
-    """
-    Multinomial Variational Autoencoder για Collaborative Filtering
-    
-    Ο αλγόριθμος MultVAE χρησιμοποιεί ένα variational autoencoder για τη
-    δημιουργία πιθανιστικών αναπαραστάσεων χρηστών και αντικειμένων.
-    
-    Βιβλιογραφικές Αναφορές:
-    - Liang et al. (2018) "Variational Autoencoders for Collaborative Filtering" (arXiv:1802.05814)
-      περιγράφει τη χρήση autoencoders για σύσταση με πιθανιστικά μοντέλα.
-    - Oramas et al. (2017) "A Deep Multimodal Approach for Cold-start Music Recommendation"
-      εφαρμόζει deep learning τεχνικές για music recommendation με multimodal δεδομένα.
-    """
-    
-    def __init__(self, num_items: int, hidden_dims: List[int] = [600, 200], 
-                 latent_dim: int = 200, dropout: float = 0.5):
-        """
-        Αρχικοποίηση του MultVAE μοντέλου
-        
-        Args:
-            num_items (int): Αριθμός αντικειμένων
-            hidden_dims (List[int]): Διαστάσεις κρυφών επιπέδων
-            latent_dim (int): Διάσταση του latent space
-            dropout (float): Ποσοστό dropout
-        """
-        super(MultVAE, self).__init__()
-        
-        self.num_items = num_items
-        self.latent_dim = latent_dim
-        
-        # Encoder
-        encoder_layers = []
-        input_dim = num_items
-        
-        for hidden_dim in hidden_dims:
-            encoder_layers.append(nn.Linear(input_dim, hidden_dim))
-            encoder_layers.append(nn.Tanh())
-            encoder_layers.append(nn.Dropout(dropout))
-            input_dim = hidden_dim
-        
-        self.encoder = nn.Sequential(*encoder_layers)
-        
-        # Latent layers (μέσος όρος και διασπορά)
-        self.fc_mu = nn.Linear(hidden_dims[-1], latent_dim)
-        self.fc_logvar = nn.Linear(hidden_dims[-1], latent_dim)
-        
-        # Decoder
-        decoder_layers = []
-        input_dim = latent_dim
-        
-        for hidden_dim in reversed(hidden_dims):
-            decoder_layers.append(nn.Linear(input_dim, hidden_dim))
-            decoder_layers.append(nn.Tanh())
-            decoder_layers.append(nn.Dropout(dropout))
-            input_dim = hidden_dim
-        
-        decoder_layers.append(nn.Linear(input_dim, num_items))
-        self.decoder = nn.Sequential(*decoder_layers)
-    
-    def encode(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Encoding στο latent space
-        
-        Args:
-            x (torch.Tensor): Input tensor
-            
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: Μέσος όρος και log διασπορά
-        """
-        h = self.encoder(x)
-        mu = self.fc_mu(h)
-        logvar = self.fc_logvar(h)
-        return mu, logvar
-    
-    def reparameterize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
-        """
-        Reparameterization trick για το VAE
-        
-        Args:
-            mu (torch.Tensor): Μέσος όρος
-            logvar (torch.Tensor): Log διασπορά
-            
-        Returns:
-            torch.Tensor: Sampled latent vector
-        """
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + eps * std
-    
-    def decode(self, z: torch.Tensor) -> torch.Tensor:
-        """
-        Decoding από το latent space
-        
-        Args:
-            z (torch.Tensor): Latent vector
-            
-        Returns:
-            torch.Tensor: Reconstructed output
-        """
-        return self.decoder(z)
-    
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Forward pass του VAE
-        
-        Args:
-            x (torch.Tensor): Input tensor
-            
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Reconstruction, μέσος όρος, log διασπορά
-        """
-        mu, logvar = self.encode(x)
-        z = self.reparameterize(mu, logvar)
-        recon_x = self.decode(z)
-        return recon_x, mu, logvar
-
-
-class MultVAERecommender:
-    """
-    Wrapper κλάση για τον MultVAE αλγόριθμο
-    
-    Παρέχει interface συμβατό με τους άλλους αλγόριθμους σύστασης.
-    """
-    
-    def __init__(self, hidden_dims: List[int] = [600, 200], latent_dim: int = 200,
-                 dropout: float = 0.5, learning_rate: float = 0.001, batch_size: int = 500,
-                 epochs: int = 100, beta: float = 1.0, device: str = 'cpu'):
-        """
-        Αρχικοποίηση του MultVAE Recommender
-        
-        Args:
-            hidden_dims (List[int]): Διαστάσεις κρυφών επιπέδων
-            latent_dim (int): Διάσταση latent space
-            dropout (float): Ποσοστό dropout
-            learning_rate (float): Ρυθμός μάθησης
-            batch_size (int): Μέγεθος batch
-            epochs (int): Αριθμός epochs
-            beta (float): Βάρος του KL divergence term
-            device (str): Συσκευή εκτέλεσης
-        """
-        self.hidden_dims = hidden_dims
-        self.latent_dim = latent_dim
-        self.dropout = dropout
-        self.learning_rate = learning_rate
-        self.batch_size = batch_size
-        self.epochs = epochs
-        self.beta = beta
-        self.device = torch.device(device)
-        
-        self.model = None
-        self.is_fitted = False
-        self.num_items = None
-    
-    def vae_loss(self, recon_x: torch.Tensor, x: torch.Tensor, 
-                 mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
-        """
-        Υπολογισμός του VAE loss (ELBO)
-        
-        Args:
-            recon_x (torch.Tensor): Reconstructed input
-            x (torch.Tensor): Original input
-            mu (torch.Tensor): Μέσος όρος
-            logvar (torch.Tensor): Log διασπορά
-            
-        Returns:
-            torch.Tensor: VAE loss
-        """
-        # Reconstruction loss (multinomial likelihood)
-        recon_loss = -torch.sum(F.log_softmax(recon_x, dim=1) * x, dim=1)
-        
-        # KL divergence
-        kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
-        
-        return torch.mean(recon_loss + self.beta * kl_loss)
-    
-    def fit(self, interaction_matrix: csr_matrix):
-        """
-        Εκπαίδευση του MultVAE μοντέλου
-        
-        Args:
-            interaction_matrix (csr_matrix): Πίνακας αλληλεπιδράσεων
-        """
-        self.num_items = interaction_matrix.shape[1]
-        
-        # Δημιουργία μοντέλου
-        self.model = MultVAE(
-            num_items=self.num_items,
-            hidden_dims=self.hidden_dims,
-            latent_dim=self.latent_dim,
-            dropout=self.dropout
-        ).to(self.device)
-        
-        # Μετατροπή σε dense matrix και κανονικοποίηση
-        interaction_dense = interaction_matrix.toarray().astype(np.float32)
-        
-        # Κανονικοποίηση ανά χρήστη (multinomial)
-        user_sums = interaction_dense.sum(axis=1, keepdims=True)
-        user_sums[user_sums == 0] = 1  # Αποφυγή διαίρεσης με μηδέν
-        interaction_normalized = interaction_dense / user_sums
-        
-        # Δημιουργία DataLoader
-        dataset = torch.utils.data.TensorDataset(torch.tensor(interaction_normalized))
-        dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
-        
-        # Optimizer
-        optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
-        
-        # Εκπαίδευση
-        self.model.train()
-        for epoch in range(self.epochs):
-            total_loss = 0
-            for batch in dataloader:
-                x = batch[0].to(self.device)
-                
-                optimizer.zero_grad()
-                recon_x, mu, logvar = self.model(x)
-                loss = self.vae_loss(recon_x, x, mu, logvar)
-                loss.backward()
-                optimizer.step()
-                
-                total_loss += loss.item()
-            
-            if (epoch + 1) % 10 == 0:
-                avg_loss = total_loss / len(dataloader)
-                print(f"Epoch {epoch + 1}/{self.epochs}, Loss: {avg_loss:.4f}")
-        
-        self.is_fitted = True
-        print("MultVAE εκπαιδεύτηκε επιτυχώς")
-    
-    def recommend(self, user_id: int, n_recommendations: int = 10, 
-                  exclude_seen: bool = True, interaction_matrix: csr_matrix = None) -> List[Tuple[int, float]]:
-        """
-        Παραγωγή συστάσεων για έναν χρήστη
-        
-        Args:
-            user_id (int): ID του χρήστη
-            n_recommendations (int): Αριθμός συστάσεων
-            exclude_seen (bool): Αν θα εξαιρεθούν τα ήδη γνωστά αντικείμενα
-            interaction_matrix (csr_matrix): Πίνακας αλληλεπιδράσεων
-            
-        Returns:
-            List[Tuple[int, float]]: Λίστα με (item_id, score)
-        """
-        if not self.is_fitted:
-            raise ValueError("Το μοντέλο δεν έχει εκπαιδευτεί. Καλέστε fit() πρώτα.")
-        
-        if interaction_matrix is None:
-            raise ValueError("Απαιτείται ο πίνακας αλληλεπιδράσεων για συστάσεις")
-        
-        self.model.eval()
-        with torch.no_grad():
-            # Προετοιμασία input για τον χρήστη
-            user_vector = interaction_matrix[user_id].toarray().astype(np.float32)
-            user_sum = user_vector.sum()
-            if user_sum > 0:
-                user_vector = user_vector / user_sum
-            
-            user_tensor = torch.tensor(user_vector).to(self.device)
-            
-            # Πρόβλεψη
-            recon_x, _, _ = self.model(user_tensor)
-            scores = recon_x.cpu().numpy().flatten()
-            
-            # Εξαίρεση ήδη γνωστών αντικειμένων
-            if exclude_seen:
-                seen_items = set(interaction_matrix[user_id].nonzero()[1])
-                for item_id in seen_items:
-                    scores[item_id] = -np.inf
-            
-            # Ταξινόμηση και επιστροφή top-N
-            top_items = np.argsort(scores)[::-1][:n_recommendations]
-            recommendations = [(int(item_id), float(scores[item_id])) for item_id in top_items]
-            
-            return recommendations 
