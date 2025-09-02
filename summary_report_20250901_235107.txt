@@ -1,0 +1,46 @@
+ΣΥΝΟΠΤΙΚΗ ΑΝΑΦΟΡΑ ΠΕΙΡΑΜΑΤΩΝ ΣΥΣΤΑΣΗΣ ΜΟΥΣΙΚΗΣ
+============================================================
+
+ΣΤΑΤΙΣΤΙΚΑ DATASET:
+--------------------
+n_users: 1892
+n_artists: 17632
+n_interactions: 92834
+avg_interactions_per_user: 49.06659619450317
+avg_interactions_per_artist: 5.265086206896552
+sparsity: 0.9972171848800758
+n_tags: 9749
+n_tag_assignments: 186479
+n_friendships: 25434
+avg_friends_per_user: 13.44291754756871
+
+ΔΙΑΣΤΑΣΕΙΣ ΠΙΝΑΚΑ ΑΛΛΗΛΕΠΙΔΡΑΣΕΩΝ: (1874, 2828)
+ΣΥΝΟΛΙΚΕΣ ΑΛΛΗΛΕΠΙΔΡΑΣΕΙΣ: 71411
+ΠΥΚΝΟΤΗΤΑ: 0.013475
+
+
+ΑΠΟΤΕΛΕΣΜΑΤΑ ΑΞΙΟΛΟΓΗΣΗΣ:
+-------------------------
+      Precision@5  Recall@5  NDCG@5  Hit_Rate@5  Precision@10  Recall@10  NDCG@10  Hit_Rate@10  Precision@20  Recall@20  NDCG@20  Hit_Rate@20  Precision@50  Recall@50  NDCG@50  Hit_Rate@50     MRR  Coverage
+BERT       0.0095    0.0103  0.0109      0.0444        0.0081     0.0175   0.0134       0.0733        0.0067     0.0274   0.0176        0.115        0.0047      0.046   0.0238       0.1877  0.0304     0.405
+
+ΚΑΛΥΤΕΡΑ ΜΟΝΤΕΛΑ ΑΝΑ ΜΕΤΡΙΚΗ:
+------------------------------
+Precision@5: BERT (0.0095)
+Recall@5: BERT (0.0103)
+NDCG@5: BERT (0.0109)
+Hit_Rate@5: BERT (0.0444)
+Precision@10: BERT (0.0081)
+Recall@10: BERT (0.0175)
+NDCG@10: BERT (0.0134)
+Hit_Rate@10: BERT (0.0733)
+Precision@20: BERT (0.0067)
+Recall@20: BERT (0.0274)
+NDCG@20: BERT (0.0176)
+Hit_Rate@20: BERT (0.1150)
+Precision@50: BERT (0.0047)
+Recall@50: BERT (0.0460)
+NDCG@50: BERT (0.0238)
+Hit_Rate@50: BERT (0.1877)
+MRR: BERT (0.0304)
+Coverage: BERT (0.4050)
