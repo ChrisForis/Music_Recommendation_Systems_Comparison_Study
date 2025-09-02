@@ -337,55 +337,6 @@ class ModernVisualizationEngine:
         
         return filepath
     
-    def create_training_curves(self, training_history: Dict[str, List[float]],
-                             title: Optional[str] = None,
-                             save_name: Optional[str] = None) -> str:
-        """
-        Δημιουργία γραφήματος καμπυλών εκπαίδευσης
-        
-        Args:
-            training_history (Dict[str, List[float]]): Ιστορικό εκπαίδευσης
-            title (str, optional): Τίτλος γραφήματος
-            save_name (str, optional): Όνομα αρχείου
-            
-        Returns:
-            str: Διαδρομή αποθηκευμένου αρχείου
-        """
-        if title is None:
-            title = 'Καμπύλες Εκπαίδευσης'
-        
-        if save_name is None:
-            save_name = 'training_curves'
-        
-        # Δημιουργία figure
-        fig, ax = plt.subplots(figsize=(12, 8))
-        
-        # Σχεδίαση καμπυλών
-        for i, (metric, values) in enumerate(training_history.items()):
-            epochs = range(1, len(values) + 1)
-            color = self.model_palette[i % len(self.model_palette)]
-            
-            ax.plot(epochs, values, marker='o', linewidth=2.5, 
-                   markersize=6, label=metric, color=color, alpha=0.8)
-        
-        # Styling
-        ax.set_title(title, fontsize=18, fontweight='bold', pad=20)
-        ax.set_xlabel('Epochs', fontsize=14, fontweight='bold')
-        ax.set_ylabel('Τιμή Μετρικής', fontsize=14, fontweight='bold')
-        
-        # Grid και legend
-        ax.grid(True, alpha=0.3)
-        ax.legend(frameon=True, fancybox=True, shadow=True)
-        
-        # Background
-        ax.set_facecolor('#fafafa')
-        
-        # Αποθήκευση
-        filepath = self._save_plot(fig, save_name)
-        plt.close(fig)
-        
-        return filepath
-    
     def create_dataset_overview(self, data_stats: Dict[str, Any],
                               title: Optional[str] = None,
                               save_name: Optional[str] = None) -> str:
@@ -606,14 +557,13 @@ class ModernVisualizationEngine:
     
     def generate_all_visualizations(self, results_df: pd.DataFrame,
                                   data_stats: Optional[Dict[str, Any]] = None,
-                                  training_history: Optional[Dict[str, List[float]]] = None) -> Dict[str, str]:
+                                ) -> Dict[str, str]:
         """
         Δημιουργία όλων των οπτικοποιήσεων
         
         Args:
             results_df (pd.DataFrame): Αποτελέσματα μοντέλων
             data_stats (Dict[str, Any], optional): Στατιστικά dataset
-            training_history (Dict[str, List[float]], optional): Ιστορικό εκπαίδευσης
             
         Returns:
             Dict[str, str]: Λεξικό με διαδρομές αρχείων
@@ -651,13 +601,7 @@ class ModernVisualizationEngine:
                 if filepath:  # Έλεγχος για μη-κενό filepath
                     generated_files['dataset_overview'] = filepath
             
-            # 5. Training curves
-            if training_history:
-                filepath = self.create_training_curves(training_history)
-                if filepath:  # Έλεγχος για μη-κενό filepath
-                    generated_files['training_curves'] = filepath
-            
-            # 6. Comprehensive dashboard
+            # 5. Comprehensive dashboard
             filepath = self.create_comprehensive_dashboard(results_df, data_stats)
             if filepath:  # Έλεγχος για μη-κενό filepath
                 generated_files['dashboard'] = filepath
@@ -668,31 +612,3 @@ class ModernVisualizationEngine:
             self.logger.error("Σφάλμα κατά τη δημιουργία οπτικοποιήσεων", exception=e)
         
         return generated_files
-
-
-def create_quick_visualization(results_df: pd.DataFrame, 
-                             output_dir: str = "plots/") -> Dict[str, str]:
-    """
-    Γρήγορη δημιουργία βασικών οπτικοποιήσεων
-    
-    Args:
-        results_df (pd.DataFrame): Αποτελέσματα μοντέλων
-        output_dir (str): Φάκελος εξόδου
-        
-    Returns:
-        Dict[str, str]: Διαδρομές δημιουργημένων αρχείων
-    """
-    viz_engine = ModernVisualizationEngine(output_dir)
-    
-    generated_files = {}
-    
-    # Δημιουργία βασικών γραφημάτων
-    if 'Recall@5' in results_df.columns:
-        filepath = viz_engine.create_model_comparison_chart(results_df, 'Recall@5')
-        generated_files['recall_comparison'] = filepath
-    
-    # Heatmap
-    filepath = viz_engine.create_metrics_heatmap(results_df)
-    generated_files['metrics_heatmap'] = filepath
-    
-    return generated_files 
