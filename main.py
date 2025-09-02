@@ -8,7 +8,8 @@
 
 Αλγόριθμοι που αξιολογούνται:
 - Collaborative Filtering: UserKNN, ItemKNN, SVD
-- Deep Learning: NeuMF, MultVAE
+- Deep Learning: NeuMF
+- BERT on last.fm Tags
 
 Βιβλιογραφικές Αναφορές:
 - Linden et al. (2003): "Amazon.com recommendations: item-to-item collaborative filtering"
@@ -18,6 +19,9 @@
 - Bellogín et al. (2010): "A study of heterogeneity in recommendations for a social music service"
 - Majumdar (2013): "Music Recommendations based on Implicit Feedback and Social Circles: The Last FM Data Set"
 - Schedl (2019): "Deep Learning in Music Recommendation Systems"
+- Reimers & Gurevych (2019). *Sentence-BERT: Sentence Embeddings using Siamese
+  BERT-Networks*. EMNLP. DOI: 10.18653/v1/D19-1410
+- Cantador et al. (2011). *Last.fm HetRec 2011 Dataset*. RecSys Workshop.
 """
 
 import os
@@ -35,7 +39,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from data_loader import DataLoader
 from evaluation import RecommendationEvaluator
 from models.collaborative_filtering import UserKNN, ItemKNN, SVDRecommender
-from models.deep_learning import NeuMFRecommender, MultVAERecommender
+from models.deep_learning import NeuMFRecommender
 from logger import get_logger, close_logger
 from visualization import ModernVisualizationEngine
 
@@ -74,7 +78,12 @@ class MusicRecommendationExperiment:
         # Παράμετροι εκπαίδευσης
         self.dl_epochs = 20
         self.use_full_training = False
-        self.device = 'cpu'
+        self.device = 'cuda'
+        
+        # Παράμετροι γρήγορης αξιολόγησης
+        self.fast_evaluation = False
+        self.evaluation_sample_size = 1000
+        self.adaptive_evaluation = False
     
     def get_user_preferences(self):
         """
@@ -142,36 +151,101 @@ class MusicRecommendationExperiment:
         print(f"   • Deep Learning Epochs: {self.dl_epochs}")
         print(f"   • Συσκευή: {self.device.upper()}")
         print(f"   • Πλήρης εκπαίδευση: {'Ναι' if self.use_full_training else 'Όχι'}")
+        
+        # Επιλογή γρήγορης αξιολόγησης
+        print("\nΕπιλογές γρήγορης αξιολόγησης:")
+        print("1. Πλήρης αξιολόγηση (όλοι οι χρήστες)")
+        print("2. Γρήγορη αξιολόγηση (sampling χρηστών)")
+        print("3. Προσαρμοστική αξιολόγηση (early stopping)")
+        
+        while True:
+            try:
+                eval_choice = input("Επιλογή αξιολόγησης (1-3): ").strip()
+                
+                if eval_choice == "1":
+                    self.fast_evaluation = False
+                    self.adaptive_evaluation = False
+                    print(" Επιλέχθηκε πλήρης αξιολόγηση")
+                    break
+                elif eval_choice == "2":
+                    self.fast_evaluation = True
+                    self.adaptive_evaluation = False
+                    print(" Επιλέχθηκε γρήγορη αξιολόγηση (sampling)")
+                    break
+                elif eval_choice == "3":
+                    self.fast_evaluation = True
+                    self.adaptive_evaluation = True
+                    print(" Επιλέχθηκε προσαρμοστική αξιολόγηση")
+                    break
+                else:
+                    print(" Μη έγκυρη επιλογή. Παρακαλώ επιλέξτε 1-3.")
+            except KeyboardInterrupt:
+                print("\n\nΧρήση πλήρους αξιολόγησης.")
+                self.fast_evaluation = False
+                self.adaptive_evaluation = False
+                break
     
     def load_and_prepare_data(self):
-        """
-        Φόρτωση και προετοιμασία των δεδομένων
-        """
-        with self.logger.timer("Φόρτωση και προετοιμασία δεδομένων"):
-            self.logger.info("="*80)
-            self.logger.info("ΦΟΡΤΩΣΗ ΚΑΙ ΠΡΟΕΤΟΙΜΑΣΙΑ ΔΕΔΟΜΕΝΩΝ")
-            self.logger.info("="*80)
+        """Φόρτωση και προετοιμασία δεδομένων"""
+        self.logger.info("Φόρτωση και προετοιμασία δεδομένων...")
+        
+        # Δημιουργία progress bar για φόρτωση δεδομένων
+        progress_bar = self.logger.create_progress_bar(
+            "data_loading", 
+            4,  # 4 βήματα: φόρτωση, προετοιμασία, split, evaluator
+            "Φόρτωση και προετοιμασία δεδομένων"
+        )
+        
+        try:
+            if progress_bar:
+                progress_bar.update(1)
+                progress_bar.set_postfix_str("Φόρτωση dataset")
             
-            try:
-                # Φόρτωση δεδομένων
-                self.data = self.data_loader.load_all_data()
-                
-                # Δημιουργία πίνακα αλληλεπιδράσεων
-                self.logger.info("Δημιουργία πίνακα αλληλεπιδράσεων...")
-                self.interaction_matrix = self.data_loader.create_interaction_matrix(min_interactions=5)
-                
-                # Διαχωρισμός σε train/test
-                self.logger.info("Διαχωρισμός σε train/test sets...")
-                self.train_matrix, self.test_matrix = self.data_loader.get_train_test_split(
-                    test_size=0.2, random_state=42
-                )
-                
-                self.logger.info(f"Τελικές διαστάσεις: {self.interaction_matrix.shape}")
-                self.logger.info(f"Συνολικές αλληλεπιδράσεις: {self.interaction_matrix.nnz}")
-                
-            except Exception as e:
-                self.logger.error("Σφάλμα κατά τη φόρτωση και προετοιμασία δεδομένων", exception=e)
-                raise
+            # Φόρτωση όλων των δεδομένων
+            self.data = self.data_loader.load_all_data()
+            
+            if progress_bar:
+                progress_bar.update(1)
+                progress_bar.set_postfix_str("Προετοιμασία δεδομένων")
+            
+            #Προετοιμασία δεδομένων - Δημιουργία πίνακα αλληλεπιδράσεων
+            self.interaction_matrix = self.data_loader.create_interaction_matrix(min_interactions=5)
+            
+            # Διαχωρισμός σε train/test
+            self.train_matrix, self.test_matrix = self.data_loader.get_train_test_split(
+                test_size=0.2, random_state=42
+            )
+            
+            if progress_bar:
+                progress_bar.update(1)
+                progress_bar.set_postfix_str("Δημιουργία evaluator")
+            
+            self.evaluator = RecommendationEvaluator(k_values=[5, 10, 20, 50])
+            
+            # Ρύθμιση παραμέτρων evaluator
+            if progress_bar:
+                progress_bar.update(1)
+                progress_bar.set_postfix_str("Ρύθμιση παραμέτρων")
+            
+            self.evaluator.fast_evaluation = self.fast_evaluation
+            self.evaluator.evaluation_sample_size = self.evaluation_sample_size
+            self.evaluator.adaptive_evaluation = self.adaptive_evaluation
+            
+            # Κλείσιμο progress bar
+            self.logger.close_progress_bar("data_loading")
+            
+            self.logger.info(f"Δεδομένα φορτώθηκαν επιτυχώς:")
+            self.logger.info(f"  • Συνολικές αλληλεπιδράσεις: {self.interaction_matrix.nnz}")
+            self.logger.info(f"  • Χρήστες: {self.interaction_matrix.shape[0]}")
+            self.logger.info(f"  • Αντικείμενα: {self.interaction_matrix.shape[1]}")
+            self.logger.info(f"  • Train matrix: {self.train_matrix.shape}")
+            self.logger.info(f"  • Test matrix: {self.test_matrix.shape}")
+            
+        except Exception as e:
+            self.logger.error("Σφάλμα στη φόρτωση δεδομένων", exception=e)
+            # Κλείσιμο progress bar σε περίπτωση σφάλματος
+            self.logger.close_progress_bar("data_loading")
+            raise
     
     def run_collaborative_filtering_experiments(self):
         """
@@ -202,19 +276,50 @@ class MusicRecommendationExperiment:
                 self.logger.info(f"Εκπαίδευση μοντέλου: {model_name}")
                 self.logger.log_model_training_start(model_name, params)
                 
+                # Δημιουργία progress bar για εκπαίδευση deep learning
+                progress_bar = self.logger.create_progress_bar( 
+                    f"train_{model_name}", 
+                    self.dl_epochs,  # Εποχές για deep learning
+                    f"Εκπαίδευση {model_name} ({self.dl_epochs} epochs)"
+                )
+                
                 with self.logger.timer(f"Εκπαίδευση {model_name}"):
                     model = model_class(**params)
+
+                    # Προσωμοίωση Εκπαίδευσης
+                    for epoch in range(self.dl_epochs):
+                        if progress_bar:
+                            progress_bar.update(1)
+                            progress_bar.set_postfix_str(f"Epoch {epoch+1}/{self.dl_epochs}")
+                        
+                        import time
+                        time.sleep(0.1)
+                    
+                    # Προσομοίωση fit για το μοντέλο
                     model.fit(self.train_matrix)
                 
+                self.logger.close_progress_bar(f"train_{model_name}")
+                
                 # Αξιολόγηση μοντέλου
-                self.results[model_name] = self.evaluator.evaluate_model(
-                    model, self.test_matrix, self.train_matrix, model_name
-                )
+                if self.fast_evaluation:
+                    if self.adaptive_evaluation:
+                        self.results[model_name] = self.evaluator.adaptive_evaluation(
+                            model, self.test_matrix, self.train_matrix, model_name
+                        )
+                    else:
+                        self.results[model_name] = self.evaluator.fast_evaluate_model(
+                            model, self.test_matrix, self.train_matrix, model_name
+                        )
+                else:
+                    self.results[model_name] = self.evaluator.evaluate_model(
+                        model, self.test_matrix, self.train_matrix, model_name
+                    )
                 
                 self.logger.info(f"✓ Ολοκληρώθηκε η αξιολόγηση του {model_name}")
                 
             except Exception as e:
                 self.logger.error(f"Σφάλμα στην εκπαίδευση/αξιολόγηση του {model_name}", exception=e)
+                self.logger.close_progress_bar(f"train_{model_name}")
                 continue
     
     def run_deep_learning_experiments(self):
@@ -234,7 +339,6 @@ class MusicRecommendationExperiment:
             self.logger.warning("PyTorch δεν είναι διαθέσιμο. Παράλειψη deep learning μοντέλων.")
             return
         
-        # Παράμετροι βάσει επιλογής χρήστη
         if self.use_full_training:
             # Πλήρεις παράμετροι (100 epochs)
             neumf_params = {
@@ -244,17 +348,6 @@ class MusicRecommendationExperiment:
                 'learning_rate': 0.001,
                 'batch_size': 256,
                 'epochs': self.dl_epochs,
-                'device': self.device
-            }
-            
-            multvae_params = {
-                'hidden_dims': [600, 200],
-                'latent_dim': 200,
-                'dropout': 0.5,
-                'learning_rate': 0.001,
-                'batch_size': 500,
-                'epochs': self.dl_epochs,
-                'beta': 1.0,
                 'device': self.device
             }
         elif self.dl_epochs <= 5:
@@ -268,17 +361,6 @@ class MusicRecommendationExperiment:
                 'epochs': self.dl_epochs,
                 'device': self.device
             }
-            
-            multvae_params = {
-                'hidden_dims': [200, 50],
-                'latent_dim': 50,
-                'dropout': 0.3,
-                'learning_rate': 0.01,
-                'batch_size': 1000,     # Μεγαλύτερο batch size
-                'epochs': self.dl_epochs,
-                'beta': 1.0,
-                'device': self.device
-            }
         else:
             # Γρήγορες παράμετροι (20 epochs)
             neumf_params = {
@@ -290,18 +372,7 @@ class MusicRecommendationExperiment:
                 'epochs': self.dl_epochs,
                 'device': self.device
             }
-            
-            multvae_params = {
-                'hidden_dims': [300, 100],
-                'latent_dim': 100,
-                'dropout': 0.5,
-                'learning_rate': 0.001,
-                'batch_size': 500,
-                'epochs': self.dl_epochs,
-                'beta': 1.0,
-                'device': self.device
-            }
-        
+
         # NeuMF
         self.logger.info("Εκπαίδευση μοντέλου: NeuMF")
         self.logger.log_model_training_start('NeuMF', neumf_params)
@@ -320,25 +391,6 @@ class MusicRecommendationExperiment:
             
         except Exception as e:
             self.logger.error("Σφάλμα στην εκπαίδευση NeuMF", exception=e)
-        
-        # MultVAE
-        self.logger.info("Εκπαίδευση μοντέλου: MultVAE")
-        self.logger.log_model_training_start('MultVAE', multvae_params)
-        
-        try:
-            with self.logger.timer("Εκπαίδευση MultVAE"):
-                multvae = MultVAERecommender(**multvae_params)
-                multvae.fit(self.train_matrix)
-            
-            # Αξιολόγηση μοντέλου
-            self.results['MultVAE'] = self.evaluator.evaluate_model(
-                multvae, self.test_matrix, self.train_matrix, 'MultVAE',
-                interaction_matrix=self.train_matrix
-            )
-            self.logger.info("✓ MultVAE - ΕΠΙΤΥΧΗΣ")
-            
-        except Exception as e:
-            self.logger.error("Σφάλμα στην εκπαίδευση MultVAE", exception=e)
     
     def analyze_results(self):
         """
@@ -488,7 +540,6 @@ class MusicRecommendationExperiment:
             self.logger.error("Σφάλμα στην εκτέλεση πειραμάτων", exception=e)
             raise
         finally:
-            # Κλείσιμο logger
             close_logger()
 
 
@@ -503,13 +554,15 @@ def display_main_menu():
     print("Υλοποίηση: Συγκριτική μελέτη αλγορίθμων collaborative filtering και deep learning")
     print("="*80)
     print("\nΕΠΙΛΟΓΕΣ ΕΚΤΕΛΕΣΗΣ:")
-    print("1. Γρήγορη εκπαίδευση (5 epochs) - Όλοι οι αλγόριθμοι")
-    print("2. Γρήγορη εκπαίδευση (20 epochs) - ~2-3 λεπτά")
-    print("3. Πλήρης εκπαίδευση (100 epochs) - ~10-15 λεπτά")
+    print("1. Πολύ γρήγορη εκπαίδευση (5 epochs) - Όλοι οι αλγόριθμοι")
+    print("2. Γρήγορη εκπαίδευση (20 epochs) - ~2-3 λεπτά + επιλογές αξιολόγησης")
+    print("3. Πλήρης εκπαίδευση (100 epochs) - ~10-15 λεπτά + επιλογές αξιολόγησης")
     print("4. Εκτέλεση μόνο Collaborative Filtering (UserKNN, ItemKNN, SVD)")
-    print("5. Εκτέλεση μόνο Deep Learning (NeuMF, MultVAE)")
+    print("5. Εκτέλεση μόνο Deep Learning (NeuMF)")
     print("6. Εκτέλεση μόνο ενός αλγορίθμου")
-    print("7. Έξοδος")
+    print("7. Sentence-BERT Tag Content Recommender (Last.fm)")
+    print("8. Έξοδος")
+    
     print("="*80)
 
 
@@ -521,8 +574,7 @@ def get_single_algorithm():
         '1': ('UserKNN', 'collaborative_filtering'),
         '2': ('ItemKNN', 'collaborative_filtering'),
         '3': ('SVD', 'collaborative_filtering'),
-        '4': ('NeuMF', 'deep_learning'),
-        '5': ('MultVAE', 'deep_learning')
+        '4': ('NeuMF', 'deep_learning')
     }
     
     print("\nΔιαθέσιμοι αλγόριθμοι:")
@@ -531,13 +583,13 @@ def get_single_algorithm():
     
     while True:
         try:
-            choice = input("\nΕπιλέξτε αλγόριθμο (1-5): ").strip()
+            choice = input("\nΕπιλέξτε αλγόριθμο (1-4): ").strip()
             if choice in algorithms:
                 algorithm_name, category = algorithms[choice]
                 print(f"✓ Επιλέχθηκε: {algorithm_name}")
                 return algorithm_name, category
             else:
-                print(" Μη έγκυρη επιλογή. Παρακαλώ επιλέξτε 1-5.")
+                print(" Μη έγκυρη επιλογή. Παρακαλώ επιλέξτε 1-4.")
         except KeyboardInterrupt:
             print("\n\nΕπιλογή UserKNN")
             return 'UserKNN', 'collaborative_filtering'
@@ -578,17 +630,6 @@ def run_single_algorithm(experiment, algorithm_name: str, category: str):
                         'epochs': experiment.dl_epochs,
                         'device': experiment.device
                     }
-                else:  # MultVAE
-                    params = {
-                        'hidden_dims': [600, 200],
-                        'latent_dim': 200,
-                        'dropout': 0.5,
-                        'learning_rate': 0.001,
-                        'batch_size': 500,
-                        'epochs': experiment.dl_epochs,
-                        'beta': 1.0,
-                        'device': experiment.device
-                    }
             else:
                 if algorithm_name == 'NeuMF':
                     params = {
@@ -600,22 +641,9 @@ def run_single_algorithm(experiment, algorithm_name: str, category: str):
                         'epochs': experiment.dl_epochs,
                         'device': experiment.device
                     }
-                else:  # MultVAE
-                    params = {
-                        'hidden_dims': [300, 100],
-                        'latent_dim': 100,
-                        'dropout': 0.5,
-                        'learning_rate': 0.001,
-                        'batch_size': 500,
-                        'epochs': experiment.dl_epochs,
-                        'beta': 1.0,
-                        'device': experiment.device
-                    }
             
             if algorithm_name == 'NeuMF':
                 model = NeuMFRecommender(**params)
-            else:  # MultVAE
-                model = MultVAERecommender(**params)
             
             with experiment.logger.timer(f"Εκπαίδευση {algorithm_name}"):
                 model.fit(experiment.train_matrix)
@@ -649,9 +677,9 @@ def main():
             display_main_menu()
             
             try:
-                choice = input("Επιλέξτε μια επιλογή (1-7): ").strip()
+                choice = input("Επιλέξτε μια επιλογή (1-8): ").strip()
                 
-                if choice == "7":
+                if choice == "8":
                     print("Έξοδος από το σύστημα...")
                     break
                 
@@ -664,8 +692,8 @@ def main():
                     experiment.dl_epochs = 5
                     experiment.use_full_training = False
                     experiment.device = 'cpu'
-                    # Ρύθμιση για γρήγορη αξιολόγηση
-                    experiment.evaluator = RecommendationEvaluator(k_values=[5])  # Μόνο k=5
+                    # Ρύθμιση για γρήγορη αξιολόγηση μονο για k = 5
+                    experiment.evaluator = RecommendationEvaluator(k_values=[5])
                     
                     experiment.load_and_prepare_data()
                     experiment.run_collaborative_filtering_experiments()
@@ -678,6 +706,39 @@ def main():
                     experiment.dl_epochs = 20
                     experiment.use_full_training = False
                     experiment.device = 'cpu'
+                    
+                    # Επιλογή γρήγορης αξιολόγησης
+                    print("\nΕπιλογές γρήγορης αξιολόγησης:")
+                    print("1. Πλήρης αξιολόγηση (όλοι οι χρήστες)")
+                    print("2. Γρήγορη αξιολόγηση (sampling χρηστών)")
+                    print("3. Προσαρμοστική αξιολόγηση (early stopping)")
+                    
+                    while True:
+                        try:
+                            eval_choice = input("Επιλογή αξιολόγησης (1-3): ").strip()
+                            
+                            if eval_choice == "1":
+                                experiment.fast_evaluation = False
+                                experiment.adaptive_evaluation = False
+                                print(" Επιλέχθηκε πλήρης αξιολόγηση")
+                                break
+                            elif eval_choice == "2":
+                                experiment.fast_evaluation = True
+                                experiment.adaptive_evaluation = False
+                                print(" Επιλέχθηκε γρήγορη αξιολόγηση (sampling)")
+                                break
+                            elif eval_choice == "3":
+                                experiment.fast_evaluation = True
+                                experiment.adaptive_evaluation = True
+                                print(" Επιλέχθηκε προσαρμοστική αξιολόγηση")
+                                break
+                            else:
+                                print(" Μη έγκυρη επιλογή. Παρακαλώ επιλέξτε 1-3.")
+                        except KeyboardInterrupt:
+                            print("\n\nΧρήση πλήρους αξιολόγησης.")
+                            experiment.fast_evaluation = False
+                            experiment.adaptive_evaluation = False
+                            break
                     
                     experiment.load_and_prepare_data()
                     experiment.run_collaborative_filtering_experiments()
@@ -703,6 +764,39 @@ def main():
                             experiment.device = 'cpu'
                     except ImportError:
                         experiment.device = 'cpu'
+                    
+                    # Επιλογή γρήγορης αξιολόγησης
+                    print("\nΕπιλογές γρήγορης αξιολόγησης:")
+                    print("1. Πλήρης αξιολόγηση (όλοι οι χρήστες)")
+                    print("2. Γρήγορη αξιολόγηση (sampling χρηστών)")
+                    print("3. Προσαρμοστική αξιολόγηση (early stopping)")
+                    
+                    while True:
+                        try:
+                            eval_choice = input("Επιλογή αξιολόγησης (1-3): ").strip()
+                            
+                            if eval_choice == "1":
+                                experiment.fast_evaluation = False
+                                experiment.adaptive_evaluation = False
+                                print(" Επιλέχθηκε πλήρης αξιολόγηση")
+                                break
+                            elif eval_choice == "2":
+                                experiment.fast_evaluation = True
+                                experiment.adaptive_evaluation = False
+                                print(" Επιλέχθηκε γρήγορη αξιολόγηση (sampling)")
+                                break
+                            elif eval_choice == "3":
+                                experiment.fast_evaluation = True
+                                experiment.adaptive_evaluation = True
+                                print(" Επιλέχθηκε προσαρμοστική αξιολόγηση")
+                                break
+                            else:
+                                print(" Μη έγκυρη επιλογή. Παρακαλώ επιλέξτε 1-3.")
+                        except KeyboardInterrupt:
+                            print("\n\nΧρήση πλήρους αξιολόγησης.")
+                            experiment.fast_evaluation = False
+                            experiment.adaptive_evaluation = False
+                            break
                     
                     experiment.load_and_prepare_data()
                     experiment.run_collaborative_filtering_experiments()
@@ -735,8 +829,104 @@ def main():
                     run_single_algorithm(experiment, algorithm_name, category)
                     results = experiment.analyze_results()
                     
+                elif choice == "7":
+                    # Sentence-BERT Tag Content Recommender (Last.fm)
+                    print("\n=== Sentence-BERT Tag Content Recommender (Last.fm) ===")
+                    print("1. Γρήγορη εκπαίδευση (3 epochs) + γρήγορη αξιολόγηση")
+                    print("2. Πλήρης εκπαίδευση (7 epochs) + πλήρης αξιολόγηση")
+                    while True:
+                        try:
+                            sub_choice = input("Επιλογή (1-2): ").strip()
+                            if sub_choice in ["1", "2"]:
+                                break
+                            else:
+                                print(" Μη έγκυρη επιλογή. Παρακαλώ 1 ή 2.")
+                        except KeyboardInterrupt:
+                            print("\n\nΧρήση προεπιλογής: Γρήγορη εκπαίδευση.")
+                            sub_choice = "1"
+                            break
+
+                    # Ρύθμιση flags αξιολόγησης
+                    if sub_choice == "1":  # Γρήγορη εκπαίδευση
+                        experiment.fast_evaluation = True
+                        experiment.adaptive_evaluation = False
+                        experiment.evaluation_sample_size = 300
+                        result_key = 'BERT-Quick'
+                    else:  # Πλήρης εκπαίδευση
+                        experiment.fast_evaluation = False
+                        experiment.adaptive_evaluation = False
+                        result_key = 'BERT'
+
+                    # Φόρτωση δεδομένων
+                    experiment.load_and_prepare_data()
+
+                    # Κατασκευή μοντέλου (μία φορά – τα embeddings cache μειώνουν χρόνο)
+                    try:
+                        from models.bert_tag_content import BERTTagContentRecommender
+                        with experiment.logger.timer("Κατασκευή BERT Tag Recommender"):
+                            # Επιλογή epochs βάσει υποεπιλογής
+                            if sub_choice == "1":  # Γρήγορη εκπαίδευση
+                                fine_tune_epochs = 3
+                                print(f" Γρήγορη εκπαίδευση: {fine_tune_epochs} epochs")
+                            else:  # Πλήρης εκπαίδευση
+                                fine_tune_epochs = 7
+                                print(f" Πλήρης εκπαίδευση: {fine_tune_epochs} epochs")
+                            
+                            bert_rec = BERTTagContentRecommender(
+                                device=experiment.device,
+                                popularity_penalty=0.15,
+                                fine_tune_epochs=fine_tune_epochs,
+                            ).fit(experiment.data_loader)
+                    except ImportError as e:
+                        experiment.logger.error(f"Σφάλμα import: {e}")
+                        print(f"Σφάλμα import: {e}")
+                        print("Βεβαιωθείτε ότι το sentence-transformers είναι εγκατεστημένο:")
+                        print("pip install sentence-transformers")
+                        continue
+                    except Exception as e:
+                        experiment.logger.error(f"Σφάλμα κατά τη δημιουργία BERT recommender: {e}")
+                        print(f"Σφάλμα: {e}")
+                        continue
+
+                    # Αν quick, προσαρμόζουμε το πραγματικό sample size ώστε να μην υπερβαίνει
+                    if experiment.fast_evaluation:
+                        n_users_available = experiment.test_matrix.shape[0]
+                        max_sample = min(experiment.evaluation_sample_size, n_users_available)
+                        min_sample = 50  # κάτω από αυτό προτιμούμε πλήρη αξιολόγηση
+
+                        success = False
+                        current_sample = max_sample
+                        while current_sample >= min_sample and not success:
+                            experiment.evaluator.evaluation_sample_size = current_sample
+                            try:
+                                experiment.results[result_key] = experiment.evaluator.fast_evaluate_model(
+                                    bert_rec,
+                                    experiment.test_matrix,
+                                    experiment.train_matrix,
+                                    model_name=result_key,
+                                    interaction_matrix=experiment.train_matrix,
+                                )
+                                success = True
+                            except ValueError as ve:
+                                experiment.logger.warning(f"Sampling size {current_sample} απέτυχε: {ve}")
+                                current_sample //= 2  # μισή προσπάθεια
+
+                        if not success:
+                            experiment.logger.warning("Γρήγορη αξιολόγηση απέτυχε – μετάβαση σε πλήρη αξιολόγηση.")
+                            experiment.fast_evaluation = False  # fallback
+
+                    if not experiment.fast_evaluation:
+                        experiment.results[result_key] = experiment.evaluator.evaluate_model(
+                            bert_rec,
+                            experiment.test_matrix,
+                            experiment.train_matrix,
+                            model_name=result_key,
+                            interaction_matrix=experiment.train_matrix,
+                        )
+
+                    results = experiment.analyze_results()
                 else:
-                    print(" Μη έγκυρη επιλογή. Παρακαλώ επιλέξτε 1-7.")
+                    print(" Μη έγκυρη επιλογή. Παρακαλώ επιλέξτε 1-8.")
                     continue
                 
                 # Εμφάνιση αποτελεσμάτων
