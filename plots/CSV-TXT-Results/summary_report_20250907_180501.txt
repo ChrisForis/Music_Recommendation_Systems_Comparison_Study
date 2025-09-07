@@ -22,25 +22,25 @@ avg_friends_per_user: 13.44291754756871
 ΑΠΟΤΕΛΕΣΜΑΤΑ ΑΞΙΟΛΟΓΗΣΗΣ:
 -------------------------
       Precision@5  Recall@5  NDCG@5  Hit_Rate@5  Precision@10  Recall@10  NDCG@10  Hit_Rate@10  Precision@20  Recall@20  NDCG@20  Hit_Rate@20  Precision@50  Recall@50  NDCG@50  Hit_Rate@50     MRR  Coverage
-BERT       0.0095    0.0103  0.0109      0.0444        0.0081     0.0175   0.0134       0.0733        0.0067     0.0274   0.0176        0.115        0.0047      0.046   0.0238       0.1877  0.0304     0.405
+BERT       0.0134    0.0135  0.0151      0.0626        0.0107     0.0219   0.0175       0.0973        0.0091     0.0355   0.0233       0.1508        0.0062     0.0571   0.0309       0.2396  0.0417    0.3811
 
 ΚΑΛΥΤΕΡΑ ΜΟΝΤΕΛΑ ΑΝΑ ΜΕΤΡΙΚΗ:
 ------------------------------
-Precision@5: BERT (0.0095)
-Recall@5: BERT (0.0103)
-NDCG@5: BERT (0.0109)
-Hit_Rate@5: BERT (0.0444)
-Precision@10: BERT (0.0081)
-Recall@10: BERT (0.0175)
-NDCG@10: BERT (0.0134)
-Hit_Rate@10: BERT (0.0733)
-Precision@20: BERT (0.0067)
-Recall@20: BERT (0.0274)
-NDCG@20: BERT (0.0176)
-Hit_Rate@20: BERT (0.1150)
-Precision@50: BERT (0.0047)
-Recall@50: BERT (0.0460)
-NDCG@50: BERT (0.0238)
-Hit_Rate@50: BERT (0.1877)
-MRR: BERT (0.0304)
-Coverage: BERT (0.4050)
+Precision@5: BERT (0.0134)
+Recall@5: BERT (0.0135)
+NDCG@5: BERT (0.0151)
+Hit_Rate@5: BERT (0.0626)
+Precision@10: BERT (0.0107)
+Recall@10: BERT (0.0219)
+NDCG@10: BERT (0.0175)
+Hit_Rate@10: BERT (0.0973)
+Precision@20: BERT (0.0091)
+Recall@20: BERT (0.0355)
+NDCG@20: BERT (0.0233)
+Hit_Rate@20: BERT (0.1508)
+Precision@50: BERT (0.0062)
+Recall@50: BERT (0.0571)
+NDCG@50: BERT (0.0309)
+Hit_Rate@50: BERT (0.2396)
+MRR: BERT (0.0417)
+Coverage: BERT (0.3811)

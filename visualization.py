@@ -111,10 +111,11 @@ class ModernVisualizationEngine:
         
         sns.set_context("notebook", font_scale=1.1)
     
-    def create_model_comparison_chart(self, results_df: pd.DataFrame, 
-                                    metric: str = 'Recall@5',
-                                    title: Optional[str] = None,
-                                    save_name: Optional[str] = None) -> str:
+    def create_model_comparison_chart(self, results_df: pd.DataFrame,
+                                      metric: str = 'Recall@5',
+                                      title: Optional[str] = None,
+                                      save_name: Optional[str] = None,
+                                      max_bars: int = 10) -> str:
         """
         Δημιουργία γραφήματος σύγκρισης μοντέλων για συγκεκριμένη μετρική
         
@@ -150,14 +151,21 @@ class ModernVisualizationEngine:
             return ""
         
         # Δημιουργία figure
-        fig, ax = plt.subplots(figsize=(12, 8))
+        fig, ax = plt.subplots(figsize=(10, 7))
         
         # Ταξινόμηση μοντέλων βάσει της μετρικής
         sorted_data = valid_data.sort_values(metric, ascending=False)
+
+        # Περιορισμός στον αριθμό των bars για να χωράνε όλα
+        if len(sorted_data) > max_bars:
+            top_data = sorted_data.head(max_bars)
+            others_value = sorted_data.tail(len(sorted_data)-max_bars)[metric].mean()
+            top_data.loc['Άλλα'] = others_value
+            sorted_data = top_data
         
         # Δημιουργία bar chart
-        bars = ax.bar(range(len(sorted_data)), sorted_data[metric], 
-                     color=self.model_palette[:len(sorted_data)])
+        bars = ax.bar(range(len(sorted_data)), sorted_data[metric],
+                      color=self.model_palette[:len(sorted_data)])
         
         # Προσθήκη τιμών πάνω από τα bars
         for i, (model, value) in enumerate(zip(sorted_data.index, sorted_data[metric])):
@@ -169,7 +177,7 @@ class ModernVisualizationEngine:
         ax.set_xlabel('Μοντέλα Σύστασης', fontsize=14, fontweight='bold')
         ax.set_ylabel(metric, fontsize=14, fontweight='bold')
         ax.set_xticks(range(len(sorted_data)))
-        ax.set_xticklabels(sorted_data.index, rotation=45, ha='right')
+        ax.set_xticklabels(sorted_data.index, rotation=30, ha='right')
         
         # Grid
         ax.grid(True, alpha=0.3, axis='y')
@@ -182,8 +190,10 @@ class ModernVisualizationEngine:
         return filepath
     
     def create_metrics_heatmap(self, results_df: pd.DataFrame,
-                              title: Optional[str] = None,
-                              save_name: Optional[str] = None) -> str:
+                               title: Optional[str] = None,
+                               save_name: Optional[str] = None,
+                               max_rows: int = 20,
+                               max_cols: int = 20) -> str:
         """
         Δημιουργία heatmap μετρικών αξιολόγησης
         
@@ -206,14 +216,14 @@ class ModernVisualizationEngine:
             self.logger.warning("Το DataFrame είναι άδειο. Δεν μπορεί να δημιουργηθεί heatmap.")
             return ""
         
-        # Έλεγχος για αριθμητικές στήλες
+        # Περιορισμός διαστάσεων για ευκρινές heatmap
+        if len(results_df) > max_rows:
+            results_df = results_df.head(max_rows)
         numeric_cols = results_df.select_dtypes(include=[np.number]).columns
-        if len(numeric_cols) == 0:
-            self.logger.warning("Δεν βρέθηκαν αριθμητικές στήλες στο DataFrame.")
-            return ""
-        
-        # Δημιουργία figure
-        fig, ax = plt.subplots(figsize=(12, 8))
+        if len(numeric_cols) > max_cols:
+            numeric_cols = numeric_cols[:max_cols]
+
+        fig, ax = plt.subplots(figsize=(min(16, 0.8*len(numeric_cols)+6), 0.6*len(results_df)+6))
         
         # Φιλτράρισμα μόνο αριθμητικών στηλών
         data = results_df[numeric_cols]
@@ -229,10 +239,11 @@ class ModernVisualizationEngine:
         cmap = sns.blend_palette(colors, n_colors=n_bins, as_cmap=True)
         
         # Δημιουργία heatmap
-        sns.heatmap(data, annot=True, fmt='.4f', cmap=cmap,
+        sns.heatmap(data, annot=True, fmt='.3f', cmap=cmap,
                    cbar_kws={'label': 'Τιμή Μετρικής'},
                    linewidths=0.5, linecolor='white',
-                   square=False, ax=ax)
+                   square=False, ax=ax,
+                   annot_kws={'size': 8, 'weight': 'bold'})
         
         # Styling
         ax.set_title(title, fontsize=18, fontweight='bold', pad=20)
@@ -278,7 +289,7 @@ class ModernVisualizationEngine:
         
         # Επιλογή μοντέλων
         if models_to_compare is None:
-            models_to_compare = results_df.index[:5].tolist()  # Top 5 μοντέλα
+            models_to_compare = results_df.index[:6].tolist()
         
         # Έλεγχος για έγκυρα μοντέλα
         valid_models = [model for model in models_to_compare if model in results_df.index]
@@ -306,7 +317,7 @@ class ModernVisualizationEngine:
         data_norm = (data - data.min()) / (data.max() - data.min())
         
         # Δημιουργία radar chart
-        fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(projection='polar'))
+        fig, ax = plt.subplots(figsize=(9, 9), subplot_kw=dict(projection='polar'))
         
         # Υπολογισμός γωνιών
         angles = np.linspace(0, 2 * np.pi, len(numeric_cols), endpoint=False).tolist()
@@ -383,11 +394,11 @@ class ModernVisualizationEngine:
             ax2.set_ylabel('Συχνότητα')
         
         # 3. Top καλλιτέχνες (bar chart)
-        if 'top_artists' in data_stats:
+        if 'top_artists' in data_stats and data_stats['top_artists']:
             top_artists = data_stats['top_artists']
             artists = list(top_artists.keys())[:10]
             counts = list(top_artists.values())[:10]
-            
+        
             bars = ax3.barh(artists, counts, color=self.colors['accent'], alpha=0.8)
             ax3.set_title('Top 10 Καλλιτέχνες', fontsize=14, fontweight='bold')
             ax3.set_xlabel('Αριθμός Αλληλεπιδράσεων')
@@ -412,7 +423,7 @@ class ModernVisualizationEngine:
             ax4.set_title('Matrix Sparsity', fontsize=14, fontweight='bold')
         
         # Ρύθμιση layout
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
         
         # Αποθήκευση
         filepath = self._save_plot(fig, save_name)
@@ -443,12 +454,12 @@ class ModernVisualizationEngine:
             save_name = 'comprehensive_dashboard'
         
         # Δημιουργία μεγάλου figure με subplots
-        fig = plt.figure(figsize=(20, 16))
+        fig = plt.figure(figsize=(24, 18))
         fig.suptitle(title, fontsize=24, fontweight='bold', y=0.98)
         
         # Layout: 3x3 grid
-        gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
-        
+        gs = fig.add_gridspec(3, 3)
+
         # 1. Model comparison (top-left, spans 2 columns)
         ax1 = fig.add_subplot(gs[0, :2])
         if 'Recall@5' in results_df.columns:
@@ -469,9 +480,14 @@ class ModernVisualizationEngine:
         ax3 = fig.add_subplot(gs[1, :])
         numeric_cols = results_df.select_dtypes(include=[np.number]).columns
         if len(numeric_cols) > 0:
+            # Βελτίωση formatting για καθαρότερα νούμερα στο dashboard
             sns.heatmap(results_df[numeric_cols], annot=True, fmt='.3f',
-                       cmap='viridis', ax=ax3, cbar_kws={'shrink': 0.8})
+                       cmap='viridis', ax=ax3, cbar_kws={'shrink': 0.8},
+                       annot_kws={'size': 6, 'weight': 'bold'})
             ax3.set_title('Heatmap Όλων των Μετρικών', fontsize=14, fontweight='bold')
+            # Βελτίωση x-axis labels για αποφυγή overlapping
+            ax3.tick_params(axis='x', rotation=45, labelsize=8)
+            ax3.tick_params(axis='y', labelsize=10)
         
         # 4. Coverage vs Accuracy scatter (bottom-left)
         ax4 = fig.add_subplot(gs[2, 0])

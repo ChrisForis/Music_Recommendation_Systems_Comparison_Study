@@ -472,10 +472,55 @@ class MusicRecommendationExperiment:
             sparsity = 1 - (self.interaction_matrix.nnz / total_possible)
             stats['sparsity'] = sparsity
             
+            # Top 10 καλλιτέχνες με τις περισσότερες αλληλεπιδράσεις
+            stats['top_artists'] = self._get_top_artists()
+            
             return stats
             
         except Exception as e:
             self.logger.warning(f"Σφάλμα στην προετοιμασία στατιστικών: {e}")
+            return {}
+    
+    def _get_top_artists(self) -> Dict[str, int]:
+        """
+        Εξαγωγή των top 10 καλλιτεχνών με τις περισσότερες αλληλεπιδράσεις
+        από το πραγματικό dataset
+        
+        Returns:
+            Dict[str, int]: Λεξικό με όνομα καλλιτέχνη -> αριθμός αλληλεπιδράσεων
+        """
+        try:
+            # Χρήση του user_artists_df για να βρούμε τους πιο δημοφιλείς καλλιτέχνες
+            if self.data_loader.user_artists_df is None:
+                self.logger.warning("user_artists_df δεν είναι διαθέσιμο")
+                return {}
+            
+            # Ομαδοποίηση ανά καλλιτέχνη και άθροιση των weights
+            artist_popularity = self.data_loader.user_artists_df.groupby('artist_id')['weight'].sum().sort_values(ascending=False)
+            
+            # Λήψη των top 10 καλλιτεχνών
+            top_10_artists = artist_popularity.head(10)
+            
+            # Αντιστοίχιση με τα ονόματα καλλιτεχνών
+            top_artists_dict = {}
+            if self.data_loader.artists_df is not None:
+                for artist_id, total_weight in top_10_artists.items():
+                    artist_name = self.data_loader.artists_df[
+                        self.data_loader.artists_df['artist_id'] == artist_id
+                    ]['name'].iloc[0] if len(self.data_loader.artists_df[
+                        self.data_loader.artists_df['artist_id'] == artist_id
+                    ]) > 0 else f"Artist_{artist_id}"
+                    top_artists_dict[artist_name] = int(total_weight)
+            else:
+                # Αν δεν έχουμε artists_df, χρησιμοποιούμε τα IDs
+                for artist_id, total_weight in top_10_artists.items():
+                    top_artists_dict[f"Artist_{artist_id}"] = int(total_weight)
+            
+            self.logger.info(f"Βρέθηκαν {len(top_artists_dict)} top καλλιτέχνες")
+            return top_artists_dict
+            
+        except Exception as e:
+            self.logger.warning(f"Σφάλμα στην εξαγωγή top καλλιτεχνών: {e}")
             return {}
     
     def _generate_summary_report(self, comparison_df: pd.DataFrame, timestamp: str):
@@ -876,7 +921,10 @@ def main():
                                 device=experiment.device,
                                 popularity_penalty=0.15,
                                 fine_tune_epochs=fine_tune_epochs,
-                            ).fit(experiment.data_loader)
+                            ).fit(
+                                experiment.data_loader,
+                                train_matrix=experiment.train_matrix,
+                            )
                     except ImportError as e:
                         experiment.logger.error(f"Σφάλμα import: {e}")
                         print(f"Σφάλμα import: {e}")

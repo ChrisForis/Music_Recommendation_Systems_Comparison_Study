@@ -167,7 +167,13 @@ class BERTTagContentRecommender:
     # PUBLIC API
     # ------------------------------------------------------------------
 
-    def fit(self, data_loader: DataLoader, *, min_tag_freq: int = 2) -> "BERTTagContentRecommender":
+    def fit(
+        self,
+        data_loader: DataLoader,
+        *,
+        train_matrix: Optional[csr_matrix] = None,
+        min_tag_freq: int = 2,
+    ) -> "BERTTagContentRecommender":
         """Κατασκευάζει τα embeddings και προϋπολογίζει βοηθητικές δομές.
 
         Καλεί εσωτερικά τις μεθόδους του ``DataLoader`` ώστε να είναι πλήρως
@@ -179,7 +185,13 @@ class BERTTagContentRecommender:
         # ------------------------------------------------------------------
         with logger.timer("Φόρτωση Last.fm dataset για BERT recommender"):
             data_loader.load_all_data()
-            A = data_loader.create_interaction_matrix(min_interactions=5)
+            # Αν έχει ήδη δημιουργηθεί train_matrix σε ανώτερο επίπεδο, χρησιμοποίησέ το ώστε
+            # να αποφευχθεί διαρροή δεδομένων (data leakage) από το test set.
+            A = (
+                train_matrix
+                if train_matrix is not None
+                else data_loader.create_interaction_matrix(min_interactions=5)
+            )
             self.A = A  # Sparsity διατηρείται για later use
             self.idx_to_artist = data_loader.idx_to_artist
 
