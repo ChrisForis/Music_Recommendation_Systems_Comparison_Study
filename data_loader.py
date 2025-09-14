@@ -245,7 +245,18 @@ class DataLoader:
             (self.user_artists_df['user_id'].isin(valid_users)) &
             (self.user_artists_df['artist_id'].isin(valid_artists))
         ].copy()
-        
+
+        # Φιλτράρισμα tagged artists για συνέπεια
+        filtered_Taggedartists_df = self.user_taggedartists_df[
+            (self.user_taggedartists_df['user_id'].isin(valid_users)) &
+            (self.user_taggedartists_df['artist_id'].isin(valid_artists))
+        ].copy()
+
+        # Εκτυπώσεις στατιστικών μετά το φιλτράρισμα(προεπεξεργασία)
+        self.logger.info("Εκτυπωση στατιστικών μετά τη προεπεξεργασία:")
+        stats = self.get_dataset_statistics(filtered_df, filtered_Taggedartists_df, self.user_friends_df)
+        self.logger.log_dataset_stats(stats)
+
         # Δημιουργία mappings
         unique_users = sorted(filtered_df['user_id'].unique())
         unique_artists = sorted(filtered_df['artist_id'].unique())
@@ -366,8 +377,8 @@ class DataLoader:
             features['user_friends'] = user_friends
         
         return features
-    
-    def get_dataset_statistics(self) -> Dict[str, any]:
+
+    def get_dataset_statistics(self, user_artists_df: Optional[pd.DataFrame] = None, user_taggedartists_df: Optional[pd.DataFrame] = None, user_friends_df: Optional[pd.DataFrame] = None) -> Dict[str, any]:
         """
         Υπολογισμός στατιστικών του dataset
         
@@ -375,8 +386,15 @@ class DataLoader:
             Dict[str, any]: Στατιστικά στοιχεία του dataset
         """
         stats = {}
-        
-        if self.user_artists_df is not None:
+
+        if user_artists_df is not None:
+            stats['n_users'] = user_artists_df['user_id'].nunique()
+            stats['n_artists'] = user_artists_df['artist_id'].nunique()
+            stats['n_interactions'] = len(user_artists_df)
+            stats['avg_interactions_per_user'] = user_artists_df.groupby('user_id').size().mean()
+            stats['avg_interactions_per_artist'] = user_artists_df.groupby('artist_id').size().mean()
+            stats['sparsity'] = 1 - (stats['n_interactions'] / (stats['n_users'] * stats['n_artists']))
+        elif self.user_artists_df is not None:
             stats['n_users'] = self.user_artists_df['user_id'].nunique()
             stats['n_artists'] = self.user_artists_df['artist_id'].nunique()
             stats['n_interactions'] = len(self.user_artists_df)
@@ -384,11 +402,17 @@ class DataLoader:
             stats['avg_interactions_per_artist'] = self.user_artists_df.groupby('artist_id').size().mean()
             stats['sparsity'] = 1 - (stats['n_interactions'] / (stats['n_users'] * stats['n_artists']))
         
-        if self.user_taggedartists_df is not None:
+        if user_taggedartists_df is not None:
+            stats['n_tags'] = user_taggedartists_df['tag_id'].nunique()
+            stats['n_tag_assignments'] = len(user_taggedartists_df)
+        elif self.user_taggedartists_df is not None:
             stats['n_tags'] = self.user_taggedartists_df['tag_id'].nunique()
             stats['n_tag_assignments'] = len(self.user_taggedartists_df)
         
-        if self.user_friends_df is not None:
+        if user_friends_df is not None:
+            stats['n_friendships'] = len(user_friends_df)
+            stats['avg_friends_per_user'] = user_friends_df.groupby('user_id').size().mean()
+        elif self.user_friends_df is not None:
             stats['n_friendships'] = len(self.user_friends_df)
             stats['avg_friends_per_user'] = self.user_friends_df.groupby('user_id').size().mean()
         
